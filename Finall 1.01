@@ -22,3 +22,11 @@ typedef struct TreeNode {
 typedef struct HashTable {
     TreeNode* buckets[HASH_TABLE_SIZE];
 } HashTable;
+
+// djb2 hash function for strings
+unsigned long hash_function(const char* str) {
+    unsigned long hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+    return hash % HASH_TABLE_SIZE;
