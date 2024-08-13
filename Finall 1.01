@@ -1,39 +1,465 @@
+//Standard input/output library
 #include <stdio.h>
+//Standard library for memory allocation
 #include <stdlib.h>
+//String handling library
 #include <string.h>
+//Character handling library
 
+#include <ctype.h>
+//Disable specific warning
 #pragma warning(disable : 4996)
-
-
+//Define the size of the hash table
 #define HASH_TABLE_SIZE 127
+//Define maximum length for country names
 #define MAX_COUNTRY_LENGTH 21
 
-typedef struct Parcel {
+typedef struct Parcel 
+{
+    //Pointer to dynamically allocated string for the destination country
     char* destination;
+    //weight of the parcel in grams
     int weight;
+    //value of the parcel in dollars
     float value;
 } Parcel;
 
-typedef struct TreeNode {
+typedef struct TreeNode 
+{
+    //pointer to the parcel associated with this tree node
     Parcel* parcel;
+    //pointer to the left,right child node
     struct TreeNode* left, * right;
 } TreeNode;
 
-typedef struct HashTable {
+typedef struct HashTable 
+{
+    //Array of pointers to TreeNode (BST roots)
     TreeNode* buckets[HASH_TABLE_SIZE];
 } HashTable;
 
-// djb2 hash function for strings
-unsigned long hash_function(const char* str) {
+//Function Prototypes
+unsigned long hash_function(const char* str);
+void to_lowercase(char* str);
+Parcel* create_parcel(const char* destination, int weight, float value);
+TreeNode* create_tree_node(Parcel* parcel);
+TreeNode* insert_tree_node(TreeNode* root, Parcel* parcel);
+void insert_parcel(HashTable* table, Parcel* parcel);
+TreeNode* find_tree_node(TreeNode* root, int weight);
+void in_order_traversal(TreeNode* root);
+void find_cheapest_most_expensive(TreeNode* root, TreeNode** cheapest, TreeNode** most_expensive);
+void find_lightest_heaviest(TreeNode* root, TreeNode** lightest, TreeNode** heaviest);
+void calculate_totals(TreeNode* root, int* total_weight, float* total_value);
+void display_menu();
+void free_tree(TreeNode* root);
+void free_hash_table(HashTable* table);
+
+int main()
+{
+    //Initialize the hash table with NULL pointers
+    HashTable table = { {NULL} };
+    //Open the data file for reading
+    FILE* file = fopen("couriers.txt", "r");
+    if (!file)
+    {
+        printf("Error opening couriers.txt\n");
+        //Exit if the file cannot be opened
+        return 1;
+    }
+
+    char destination[MAX_COUNTRY_LENGTH];
+    int weight;
+    float value;
+
+    //expanded error handling for file reading
+    while (fscanf(file, "%20[^,],%d,%f\n", destination, &weight, &value) == 3) {
+        //check for buffer overflow and valid inputs
+        if (strlen(destination) >= MAX_COUNTRY_LENGTH || weight < 0 || value < 0) {
+            printf("Invalid entry in couriers.txt: %s, %d, %f\n", destination, weight, value);
+            //Skip invalid entries
+            continue;
+        }
+        //Create a new parcel
+        Parcel* parcel = create_parcel(destination, weight, value);
+        //Insert the parcel into the hash table
+        insert_parcel(&table, parcel);
+    }
+    //Close the data file
+    fclose(file);
+
+    int choice;
+    do {
+        //Display the main menu
+        display_menu();
+        if (scanf("%d", &choice) != 1)
+        {
+            printf("Invalid input. Please enter a number.\n");
+            //Clear the input buffer
+            while (getchar() != '\n');
+            //Repeat the loop if input is invalid
+            continue;
+        }
+
+        char country[MAX_COUNTRY_LENGTH];
+        TreeNode* result, * cheapest, * most_expensive, * lightest, * heaviest;
+        int total_weight;
+        float total_value;
+
+        switch (choice) 
+        {
+        case 1:
+            //Display all parcels for a given country
+            printf("Enter country name: ");
+            //Consume leftover newline character
+            getchar();  
+            fgets(country, MAX_COUNTRY_LENGTH, stdin);
+            //Remove the newline character
+            country[strcspn(country, "\n")] = 0;  
+            //Convert country name to lowercase
+            to_lowercase(country);
+            //Find the tree for the country
+            result = table.buckets[hash_function(country)];
+            if (result) 
+            {
+                //Display the parcels using in-order traversal
+                in_order_traversal(result);
+            }
+            else {
+                printf("No parcels found for %s\n", country);
+            }
+            break;
+
+        case 2:
+            //Display parcels for a country with specific weight
+            printf("Enter country name: ");
+            //Consume leftover newline character
+            getchar();  
+            fgets(country, MAX_COUNTRY_LENGTH, stdin);
+            //Remove the newline character
+            country[strcspn(country, "\n")] = 0;  
+            //Convert country name to lowercase
+            to_lowercase(country);
+            printf("Enter weight: ");
+            if (scanf("%d", &weight) != 1) {
+                printf("Invalid weight input. Please enter a valid number.\n");
+                //Clear the input buffer
+                while (getchar() != '\n');
+                //Repeat the loop if input is invalid
+                continue;
+            }
+            result = find_tree_node(table.buckets[hash_function(country)], weight);
+            if (result) {
+                printf("Parcel found: Destination: %s, Weight: %d gms, Value: $%.2f\n", result->parcel->destination, result->parcel->weight, result->parcel->value);
+            }
+            else {
+                printf("No parcel found for %s with weight %d gms\n", country, weight);
+            }
+            break;
+
+        case 3:
+            //Display total parcel load and valuation for a country
+            printf("Enter country name: ");
+            //Consume leftover newline character
+            getchar();  
+            fgets(country, MAX_COUNTRY_LENGTH, stdin);
+            //Remove the newline character
+            country[strcspn(country, "\n")] = 0;  
+            //Convert country name to lowercase
+            to_lowercase(country);
+            total_weight = 0;
+            total_value = 0.0;
+            calculate_totals(table.buckets[hash_function(country)], &total_weight, &total_value);
+            if (total_weight > 0 || total_value > 0) {
+                printf("Total weight: %d gms, Total value: $%.2f\n", total_weight, total_value);
+            }
+            else {
+                printf("No parcels found for %s\n", country);
+            }
+            break;
+
+        case 4:
+            //Display cheapest and most expensive parcel for a country
+            printf("Enter country name: ");
+            // Consume leftover newline character
+            getchar();  
+            fgets(country, MAX_COUNTRY_LENGTH, stdin);
+            //Remove the newline character
+            country[strcspn(country, "\n")] = 0;  
+            //Convert country name to lowercase
+            to_lowercase(country);
+            cheapest = most_expensive = NULL;
+            find_cheapest_most_expensive(table.buckets[hash_function(country)], &cheapest, &most_expensive);
+            if (cheapest && most_expensive) {
+                printf("Cheapest parcel: Destination: %s, Weight: %d gms, Value: $%.2f\n", cheapest->parcel->destination, cheapest->parcel->weight, cheapest->parcel->value);
+                printf("Most expensive parcel: Destination: %s, Weight: %d gms, Value: $%.2f\n", most_expensive->parcel->destination, most_expensive->parcel->weight, most_expensive->parcel->value);
+            }
+            else {
+                printf("No parcels found for %s\n", country);
+            }
+            break;
+
+        case 5:
+            //Display lightest and heaviest parcel for a country
+            printf("Enter country name: ");
+            getchar();  // Consume leftover newline character
+            fgets(country, MAX_COUNTRY_LENGTH, stdin);
+            //Remove the newline character
+            country[strcspn(country, "\n")] = 0;  
+            //Convert country name to lowercas
+            to_lowercase(country);
+            lightest = heaviest = NULL;
+            find_lightest_heaviest(table.buckets[hash_function(country)], &lightest, &heaviest);
+            if (lightest && heaviest) {
+                printf("Lightest parcel: Destination: %s, Weight: %d gms, Value: $%.2f\n", lightest->parcel->destination, lightest->parcel->weight, lightest->parcel->value);
+                printf("Heaviest parcel: Destination: %s, Weight: %d gms, Value: $%.2f\n", heaviest->parcel->destination, heaviest->parcel->weight, heaviest->parcel->value);
+            }
+            else {
+                printf("No parcels found for %s\n", country);
+            }
+            break;
+
+        case 6:
+            //Exit the application
+            printf("Exiting program.\n");
+            break;
+
+        default:
+            //handle invalid menu options
+            printf("Invalid option. Please try again.\n");
+        }
+        //repeat the loop until the user chooses to exit
+    } while (choice != 6);
+    //free all allocated memory before exiting
+    free_hash_table(&table);
+    //Return from main function
+    return 0;
+}
+
+
+
+
+//djb2 hash function for strings
+//This function generates a hash value for the given string
+unsigned long hash_function(const char* str) 
+{
+    //Initialize hash value
     unsigned long hash = 5381;
     int c;
+    //Iterate through each character in the string
     while ((c = *str++))
-        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+        //* hash * 33 + c 
+        hash = ((hash << 5) + hash) + c; 
+    //Return hash value modulo the hash table size
     return hash % HASH_TABLE_SIZE;
+}
 
-// Convert string to lowercase
+//Convert string to lowercase
+//This function modifies the input string to make all characters lowercase
 void to_lowercase(char* str) {
     for (int i = 0; str[i]; i++) {
         str[i] = tolower((unsigned char)str[i]);
     }
 }
+
+//Create a new parcel
+//Allocates memory for a new Parcel and initializes its fields
+Parcel* create_parcel(const char* destination, int weight, float value)
+{
+    //Allocate memory for the parcel structure
+    Parcel* new_parcel = (Parcel*)malloc(sizeof(Parcel));
+    if (!new_parcel) {
+        printf("Memory allocation failed for parcel.\n");
+        //Exit if memory allocation fails
+        exit(1);
+    }
+    //Allocate memory for the destination string
+    new_parcel->destination = (char*)malloc(strlen(destination) + 1);
+    if (!new_parcel->destination) {
+        printf("Memory allocation failed for destination.\n");
+        //Free the parcel memory if destination allocation fails
+        free(new_parcel);
+        //Exit if memory allocation fails
+        exit(1);
+    }
+    //Copy the destination string and initialize weight and value
+    strcpy(new_parcel->destination, destination);
+    new_parcel->weight = weight;
+    new_parcel->value = value;
+    //Return the newly created parcel
+    return new_parcel;
+}
+
+//Create a new tree node
+//Allocates memory for a new TreeNode and initializes its fields
+TreeNode* create_tree_node(Parcel* parcel) 
+{
+    //Allocate memory for the tree node
+    TreeNode* node = (TreeNode*)malloc(sizeof(TreeNode));
+    if (!node) 
+    {
+        printf("Memory allocation failed for tree node.\n");
+        //Exit if memory allocation fails
+        exit(1);
+    }
+    //Initialize the tree node fields
+    node->parcel = parcel;
+    node->left = node->right = NULL;
+    //Return the newly created tree node
+    return node;
+}
+
+//Insert a parcel into the BST
+//This function inserts a parcel into the binary search tree based on its weight
+TreeNode* insert_tree_node(TreeNode* root, Parcel* parcel) {
+    if (root == NULL)
+    {
+
+        //Create a new node if the root is NULL
+        return create_tree_node(parcel);
+    }
+    //Recursively insert the parcel based on its weight
+    if (parcel->weight < root->parcel->weight) {
+        root->left = insert_tree_node(root->left, parcel);
+    }
+    else if (parcel->weight > root->parcel->weight) {
+        root->right = insert_tree_node(root->right, parcel);
+    }
+    //Return the root of the BST
+    return root;
+}
+
+//Insert a parcel into the hash table
+//This function inserts a parcel into the appropriate bucket of the hash table
+
+void insert_parcel(HashTable* table, Parcel* parcel)
+{
+    //Temporary buffer for lowercase destination
+    char destination_lower[MAX_COUNTRY_LENGTH];
+    strcpy(destination_lower, parcel->destination);
+    //Convert destination to lowercase
+    to_lowercase(destination_lower);
+    //Calculate the hash index and insert the parcel into the BST at that index
+    unsigned long index = hash_function(destination_lower);
+    table->buckets[index] = insert_tree_node(table->buckets[index], parcel);
+}
+
+//Find a node with a specific weight in the BST
+//This function searches the BST for a node with the given weight
+TreeNode* find_tree_node(TreeNode* root, int weight)
+{
+    //Return the node if found or if the root is NULL
+    if (root == NULL || root->parcel->weight == weight) {
+        return root;
+    }
+    //Recursively search for the node based on the weight
+    if (weight < root->parcel->weight) {
+        return find_tree_node(root->left, weight);
+    }
+    else {
+        return find_tree_node(root->right, weight);
+    }
+}
+
+//In order traversal to display parcels
+//This function traverses the BST in-order and displays the parcel details
+void in_order_traversal(TreeNode* root) 
+{
+    if (root != NULL) 
+    {
+        // Visit left subtree
+        in_order_traversal(root->left);
+        printf("Destination: %s, Weight: %d gms, Value: $%.2f\n", root->parcel->destination, root->parcel->weight, root->parcel->value);
+        // Visit right subtree
+        in_order_traversal(root->right);
+    }
+}
+
+//Find the cheapest and most expensive parcels in the BST
+//This function finds the nodes with the minimum and maximum values in the BST
+void find_cheapest_most_expensive(TreeNode* root, TreeNode** cheapest, TreeNode** most_expensive) {
+    //Return if the tree is empty
+    if (root == NULL) return;
+    //Recursively find the cheapest and most expensive parcels
+    find_cheapest_most_expensive(root->left, cheapest, most_expensive);
+    if (*cheapest == NULL || root->parcel->value < (*cheapest)->parcel->value) {
+        *cheapest = root;
+    }
+    if (*most_expensive == NULL || root->parcel->value > (*most_expensive)->parcel->value) {
+        *most_expensive = root;
+    }
+    find_cheapest_most_expensive(root->right, cheapest, most_expensive);
+}
+
+//Find the lightest and heaviest parcels in the BST
+//This function finds the nodes with the minimum and maximum weights in the BST
+void find_lightest_heaviest(TreeNode* root, TreeNode** lightest, TreeNode** heaviest) {
+    //return if the tree is empty
+    if (root == NULL) return;
+    //recursively find the lightest and heaviest parcels
+    find_lightest_heaviest(root->left, lightest, heaviest);
+    if (*lightest == NULL || root->parcel->weight < (*lightest)->parcel->weight) {
+        *lightest = root;
+    }
+    if (*heaviest == NULL || root->parcel->weight > (*heaviest)->parcel->weight) {
+        *heaviest = root;
+    }
+    find_lightest_heaviest(root->right, lightest, heaviest);
+}
+
+//calculate the total weight and value for a country
+//This function calculates the cumulative weight and value of all parcels in the BST
+void calculate_totals(TreeNode* root, int* total_weight, float* total_value) {
+    if (root != NULL) 
+    {
+        // Calculate totals for the left subtree
+        calculate_totals(root->left, total_weight, total_value);
+        // Add the weight of the current parcel
+        *total_weight += root->parcel->weight;
+        // Add the value of the current parcel
+        *total_value += root->parcel->value;
+        // Calculate totals for the right subtree
+        calculate_totals(root->right, total_weight, total_value);
+    }
+}
+
+//Display menu options
+//This function displays the main menu for the user
+void display_menu()
+{
+    printf("\nCourier Management System:\n");
+    printf("1. Enter country name and display all parcels\n");
+    printf("2. Enter country and weight pair\n");
+    printf("3. Display total parcel load and valuation for the country\n");
+    printf("4. Display cheapest and most expensive parcel for the country\n");
+    printf("5. Display lightest and heaviest parcel for the country\n");
+    printf("6. Exit\n");
+    printf("Select an option: ");
+}
+
+//free the memory of a BST
+//This function frees the memory allocated for the BST
+void free_tree(TreeNode* root) 
+{
+    if (root != NULL)
+    {
+        //free the left subtree
+        free_tree(root->left);
+        //free the right subtree
+        free_tree(root->right);
+        //free the destination string
+        free(root->parcel->destination);
+        //free the parcel structure
+        free(root->parcel);
+        //free the tree node
+        free(root);
+    }
+}
+
+//free the memory of the hash table
+void free_hash_table(HashTable* table)
+{
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        free_tree(table->buckets[i]);
+    }
+}
+
