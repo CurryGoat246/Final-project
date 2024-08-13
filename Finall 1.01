@@ -18,3 +18,7 @@ typedef struct TreeNode {
     Parcel* parcel;
     struct TreeNode* left, * right;
 } TreeNode;
+
+typedef struct HashTable {
+    TreeNode* buckets[HASH_TABLE_SIZE];
+} HashTable;
