@@ -13,3 +13,8 @@ typedef struct Parcel {
     int weight;
     float value;
 } Parcel;
+
+typedef struct TreeNode {
+    Parcel* parcel;
+    struct TreeNode* left, * right;
+} TreeNode;
